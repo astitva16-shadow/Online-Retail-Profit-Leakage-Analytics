@@ -1,0 +1,658 @@
+================================================================================
+  ONLINE RETAIL PROFIT LEAKAGE ANALYTICS
+  Complete Academic Report & Project Documentation
+  ────────────────────────────────────────────────
+  B.Tech Data Analytics — Reverse Learning Project
+  Author : Astitva
+  Date   : February 2026
+================================================================================
+
+
+================================================================================
+  PART 1 : DASHBOARD ARCHITECTURE EXPLANATION
+================================================================================
+
+1.1  Architecture Overview
+─────────────────────────
+
+The dashboard follows a single-page, tabbed architecture built on Streamlit with
+Plotly for interactive visualisations. The design philosophy prioritises a
+business-intelligence (BI) interface that moves from summary to detail, mirroring
+how an executive or analyst would naturally interrogate profit leakage data.
+
+Architecture layers:
+
+    DATA LAYER            -->  Excel ingestion, cleaning, feature engineering
+    FILTER LAYER          -->  Sidebar controls (date, country, category, price band)
+    COMPUTATION LAYER     -->  KPI calculations, aggregations, cohort logic
+    PRESENTATION LAYER    -->  Five themed tabs with Plotly charts
+    INTERACTION LAYER     -->  Simulation sliders, filter reactivity
+
+1.2  Tab Structure and Rationale
+────────────────────────────────
+
+Tab 1 — Executive Profit Leakage Summary
+    Purpose: Provide a single-screen financial overview answering "how severe is
+    the return problem?"
+    Components:
+      - 8 KPI metric cards (gross revenue, return losses, net revenue, return
+        rate, gross profit, net profit, profit erosion, transaction return rate)
+      - Monthly revenue-vs-return trend (dual-axis bar+line chart)
+      - Revenue waterfall (gross → COGS → gross profit → return losses → net profit)
+      - Country-level return rate horizontal bar chart (top 15)
+    Design rationale: The waterfall chart makes the profit drain visually
+    immediate; the monthly trend reveals whether the problem is growing or stable.
+
+Tab 2 — Product & Category Return Intelligence
+    Purpose: Identify which products and categories are the biggest contributors
+    to return losses.
+    Components:
+      - Top 15 products by absolute return loss
+      - Category return rates (top 20 categories, filtered by minimum sales volume)
+      - Price band vs return risk (dual-axis)
+      - Pareto (80/20) concentration analysis
+    Design rationale: Pareto analysis is critical — it quantifies exactly how
+    many products need attention to recover 80% of losses.
+
+Tab 3 — Customer Behaviour & Policy Risk
+    Purpose: Profile customer-level return behaviour and identify high-risk
+    segments.
+    Components:
+      - Top 15 customers by return loss
+      - Customer risk segmentation pie chart (High / Medium / Low / No Returns)
+      - Monthly cohort retention heatmap
+      - Customer segmentation scatter (Spend vs Return Loss, sized by return count)
+      - Temporal patterns (day-of-week and hour-of-day return rates)
+    Design rationale: The cohort heatmap reveals whether returning customers
+    are retained or churned; the scatter plot identifies the quadrant of
+    high-spend-high-return customers who warrant policy intervention.
+
+Tab 4 — Profit Lift Simulator
+    Purpose: Model the financial impact of return-reduction strategies.
+    Components:
+      - Three interactive sliders (return reduction %, margin assumption,
+        cost multiplier)
+      - Current vs projected scenario comparison
+      - Profit sensitivity curve
+    Design rationale: Allows stakeholders to test "what-if" scenarios without
+    modifying data, supporting evidence-based decision-making in meetings.
+
+Tab 5 — Recommendations & Ethics
+    Purpose: Translate analytics into actionable business interventions and
+    address responsible use of customer data.
+    Components:
+      - Prioritised action tracker table (10 recommendations)
+      - Ethical safeguards section (5 principles)
+      - KPI definitions and assumptions reference
+
+1.3  Technical Design Decisions
+───────────────────────────────
+
+- Caching: Streamlit's @st.cache_data decorator ensures the Excel file is read
+  only once per session, even when filters change.
+- Filter reactivity: All charts recompute from the filtered DataFrame, not
+  from pre-aggregated summaries, ensuring consistency.
+- Profit assumptions: Explicitly stated — 40% gross margin, 60% COGS — because
+  the dataset contains no cost data. This is a limitation, acknowledged and
+  parameterised in the simulator.
+- Dark theme: All Plotly charts use "plotly_dark" template with custom CSS for
+  Streamlit components, providing a cohesive BI-tool aesthetic.
+- Modularity: The code is organised into clearly labelled sections (data loading,
+  filters, helpers, each tab) with inline documentation, making it easy to
+  extend or modify individual components.
+
+
+================================================================================
+  PART 2 : PROBLEM UNDERSTANDING
+================================================================================
+
+2.1  Business Context
+─────────────────────
+
+The client is a UK-based online retailer specialising in unique all-occasion
+gift items, with a customer base spanning 38 countries. Despite consistent or
+growing top-line revenue, the organisation experiences declining net
+profitability. Preliminary investigation points to product returns as a
+significant and growing source of profit erosion.
+
+2.2  Problem Statement
+──────────────────────
+
+While gross revenue for the observation period (December 2010 — December 2011)
+totalled approximately GBP 8.91 million, return losses amounted to GBP 611,342
+— representing 6.86% of gross revenue. When measured against estimated gross
+profit (at 40% margin), these return losses consume 17.1% of the profit base.
+
+The problem is not merely the aggregate return rate, but the concentration and
+distribution of those returns across products, customer segments, price bands,
+and geographies. Without understanding these dimensions, blanket return policies
+risk alienating loyal customers while failing to address the actual sources of
+leakage.
+
+2.3  Analytical Objective
+─────────────────────────
+
+This project aims to:
+  (a) Quantify the total financial impact of product returns on profitability.
+  (b) Identify which products, categories, customer segments, and regions
+      contribute disproportionately to return losses.
+  (c) Model the profit recovery potential of targeted return-reduction strategies.
+  (d) Provide actionable, ethically grounded recommendations for stakeholders.
+
+
+================================================================================
+  PART 3 : KPI DEFINITIONS
+================================================================================
+
+  KPI                          Formula                                         Business Meaning
+  ─────────────────────────    ─────────────────────────────────────────────    ─────────────────────────────────────────────
+  Gross Revenue                SUM(Qty x Price) for non-return transactions    Total revenue before return adjustments
+  Return Losses                SUM(|Qty x Price|) for return transactions      Absolute revenue lost to returns
+  Net Revenue                  Gross Revenue - Return Losses                   Revenue actually retained
+  Return Rate (Revenue)        (Return Losses / Gross Revenue) x 100           Percentage of revenue eroded
+  Gross Profit (estimated)     Gross Revenue x 0.40                            Profit assuming 40% margin
+  Net Profit (estimated)       Gross Profit - Return Losses                    Profit after absorbing return costs
+  Profit Erosion               (Return Losses / Gross Profit) x 100           Share of gross profit consumed by returns
+  Transaction Return Rate      (Return Invoices / Total Invoices) x 100       Proportion of transactions that are returns
+  Customer Return Rate         (Return Orders / Total Orders) per customer     Individual-level return propensity
+  Return Concentration Index   Products accounting for 80% of return losses    Pareto measure of loss concentration
+
+  Assumptions:
+  - COGS = 60% of revenue (standard e-retail benchmark; no cost data available)
+  - Each return transaction's loss is valued at |Quantity x UnitPrice|
+  - Returns identified by InvoiceNo starting with "C" OR negative Quantity
+
+
+================================================================================
+  PART 4 : DATA CLEANING METHODOLOGY
+================================================================================
+
+4.1  Raw Data Profile
+─────────────────────
+
+  Total records          :  541,909
+  Columns                :  8 (InvoiceNo, StockCode, Description, Quantity,
+                            InvoiceDate, UnitPrice, CustomerID, Country)
+  Date range             :  01-Dec-2010 to 09-Dec-2011
+  Unique customers       :  4,372
+  Unique products (codes):  4,070
+  Unique invoices        :  25,900
+
+4.2  Data Quality Issues Identified
+────────────────────────────────────
+
+  Issue                         Count       Action Taken
+  ─────────────────────────     ─────────   ──────────────────────────────────────
+  Null CustomerID               135,080     Rows dropped (cannot attribute to customer)
+  Null Description                1,454     Rows dropped (cannot identify product)
+  Zero / negative UnitPrice         ~40     Rows dropped (non-transactional records)
+  Whitespace in string fields   Various     Stripped from all string columns
+  CustomerID as float           All rows    Cast to integer after null removal
+
+4.3  Feature Engineering
+────────────────────────
+
+  Feature          Derivation                                    Purpose
+  ─────────────    ─────────────────────────────────────────     ──────────────────────────────────
+  is_return        InvoiceNo starts with 'C' OR Qty < 0         Binary flag to separate returns
+  Revenue          Quantity x UnitPrice (signed)                 Core financial metric
+  YearMonth        InvoiceDate truncated to month period         Time-series aggregation
+  DayOfWeek        Day name from InvoiceDate                     Temporal pattern analysis
+  Hour             Hour from InvoiceDate                         Intraday pattern analysis
+  PriceBand        Binned UnitPrice into 7 ranges                Price-sensitivity analysis
+  Category         First word of Description, uppercased         Proxy product category
+
+4.4  Post-Cleaning Dataset
+──────────────────────────
+
+  Cleaned records  :  406,789
+  Sales records    :  397,884
+  Return records   :    8,905
+  Data loss        :  24.9% of rows (primarily null CustomerID)
+
+  Justification for aggressive cleaning: Rows without CustomerID cannot
+  contribute to customer-level analytics (cohort analysis, risk segmentation,
+  repeat-returner identification). Retaining them would inflate revenue figures
+  while providing no actionable customer insight.
+
+
+================================================================================
+  PART 5 : DASHBOARD EXPLANATION (PAGE BY PAGE)
+================================================================================
+
+Page 1 — Executive Profit Leakage Summary
+──────────────────────────────────────────
+This page answers the C-suite question: "How much money are we losing to
+returns?" Eight KPI cards display the headline financial metrics. The monthly
+trend chart reveals whether return losses are growing proportionally with revenue
+or accelerating. The waterfall chart translates the abstract concept of profit
+erosion into a visual flow — executives can see exactly where GBP 8.91M of gross
+revenue narrows to an estimated net profit of GBP 2.95M, with GBP 611K leaking
+out through returns. The country horizontal bar chart highlights geographic
+risk pockets, enabling regional managers to be held accountable.
+
+Page 2 — Product & Category Return Intelligence
+────────────────────────────────────────────────
+This page answers: "Which products are the problem?" The top-15 products bar
+chart isolates the individual SKUs generating the most return losses. The
+category-level view aggregates to a higher taxonomy level, revealing whether
+losses are isolated to individual products or systemic to a product type. The
+price-band analysis tests the hypothesis that higher-priced items have higher
+return rates (they do — the 50-1000 band shows significantly elevated risk).
+The Pareto chart is the most strategically important visualisation: it
+demonstrates that just 67 out of 1,944 returned products account for 80% of
+all return losses, making targeted intervention highly efficient.
+
+Page 3 — Customer Behaviour & Policy Risk
+──────────────────────────────────────────
+This page answers: "Who is returning products, and should we be concerned?" The
+top-15 returner bar chart identifies individual customers whose return behaviour
+may warrant investigation. The risk-segmentation pie chart categorises the entire
+customer base into High / Medium / Low / No Returns tiers using a composite
+rule based on return rate and absolute loss quartile. The cohort heatmap shows
+monthly customer retention — critical because high-return customers who also
+churn represent pure loss, whereas high-return customers who remain loyal may
+justify a different intervention strategy. The scatter plot maps every customer
+on a Spend-vs-ReturnLoss plane, with colour encoding risk tier and bubble size
+encoding return frequency. Temporal charts reveal that certain days and hours
+correlate with higher return rates, informing operational scheduling.
+
+Page 4 — Profit Lift Simulator
+──────────────────────────────
+This page answers: "What happens if we reduce returns by X%?" Three sliders
+allow the user to adjust return reduction percentage (0-100%), gross margin
+assumption (20-60%), and return processing cost multiplier (1.0-1.5x). The
+scenario comparison shows current vs projected net profit side by side. The
+sensitivity curve plots net profit across all reduction levels, with a
+vertical marker at the user's chosen target — this enables stakeholders to
+identify diminishing-returns thresholds and set realistic targets.
+
+Page 5 — Recommendations & Ethics
+──────────────────────────────────
+This page translates analytics into action. A prioritised recommendation table
+lists 10 interventions ranked Critical / High / Medium / Low, each linked to a
+specific finding from the preceding tabs. Five ethical safeguards address
+customer fairness, data privacy, algorithmic bias, transparency, and
+proportionality — ensuring that return-reduction strategies do not inadvertently
+harm legitimate customers or violate regulatory obligations. A KPI reference
+table provides documentation for every metric used in the dashboard.
+
+
+================================================================================
+  PART 6 : DATA-DRIVEN INSIGHTS (15 Insights)
+================================================================================
+
+Insight 1 — Revenue-Profit Disconnect
+    Gross revenue of GBP 8.91M masks a significant profit leakage: GBP 611K in
+    return losses consumes 17.1% of estimated gross profit. The retailer's
+    top-line growth is partially illusory when measured against true bottom-line
+    impact.
+
+Insight 2 — Extreme Return Concentration
+    Only 67 products (3.4% of all returned products) account for 80% of total
+    return losses. This is a textbook Pareto distribution that makes targeted
+    intervention far more efficient than blanket policy changes.
+
+Insight 3 — High-Price Items Are Disproportionately Returned
+    Products in the GBP 50-1000 price band exhibit significantly higher return
+    rates than lower-price bands. Since these items carry the highest absolute
+    revenue per unit, each return inflicts outsized financial damage.
+
+Insight 4 — A Small Customer Cohort Drives Major Losses
+    High-risk customers (those with return rates above 40% and return losses in
+    the top quartile) represent a small fraction of the customer base but account
+    for a disproportionate share of total return losses. Targeted policy
+    interventions for this segment would have minimal impact on the broader
+    customer experience.
+
+Insight 5 — Customer Retention Decays Rapidly
+    The cohort analysis reveals that only approximately 20-35% of customers
+    acquired in a given month return to purchase in the following month. By month
+    six, retention typically falls below 15%. This means the retailer depends
+    heavily on continuous acquisition — amplifying the damage of returns, since
+    many returns come from first-time buyers who never return.
+
+Insight 6 — Geographic Concentration of Returns
+    While the United Kingdom dominates transaction volume (accounting for over
+    90% of transactions), several smaller markets exhibit return rates 2-3x
+    higher than the UK baseline, suggesting localisation issues (incorrect
+    product expectations, shipping delays, or currency/size mismatches).
+
+Insight 7 — Time-of-Week Return Patterns
+    Return rates are not uniform across the week. Certain weekdays show elevated
+    return rates, potentially correlating with post-weekend delivery receipt
+    patterns or batch-processing of returns.
+
+Insight 8 — Monthly Seasonality in Return Losses
+    Return losses are not proportional to revenue throughout the year. Certain
+    months (particularly following peak sales periods such as the holiday season)
+    show disproportionate return spikes, indicating a lag between gifting
+    purchases and recipient-initiated returns.
+
+Insight 9 — Net Profit Sensitivity to Return Rates
+    A 25% reduction in return losses would lift estimated net profit by
+    approximately GBP 176K — a 6% improvement. Conversely, a 25% increase would
+    erode a further GBP 176K, demonstrating the symmetric risk exposure.
+
+Insight 10 — Return Processing Costs Amplify Losses
+    When return processing overhead (shipping, restocking, quality inspection) is
+    modelled at a 1.15x multiplier, the true economic impact of returns rises
+    from GBP 611K to approximately GBP 703K — adding nearly GBP 92K in hidden
+    operational costs.
+
+Insight 11 — Category-Level Variability
+    Product categories (proxied by the leading word of the product description)
+    show wide variability in return rates, ranging from under 2% to over 30%.
+    Categories with above-average return rates often correspond to items where
+    physical attributes (size, colour, texture) are difficult to evaluate online.
+
+Insight 12 — Repeat Returners vs One-Time Returners
+    A substantial proportion of return losses come from customers who have
+    returned products on multiple separate occasions, not from isolated incidents.
+    This "serial returner" behaviour suggests policy loopholes rather than
+    product-quality issues.
+
+Insight 13 — Revenue Band and Return Rate Relationship
+    Low-value transactions (GBP 0-2 band) generate the highest volume of returns
+    in absolute count, but high-value transactions generate the most return losses
+    in monetary terms. This suggests two distinct intervention strategies: volume
+    reduction for low-value items and loss reduction for high-value items.
+
+Insight 14 — Missing Customer Data Limits Full Analysis
+    24.9% of original records lacked CustomerID, which were excluded from
+    analysis. These represent potentially significant unattributed return losses.
+    If these customers have higher return rates than identified customers, the
+    true profit leakage may be materially understated.
+
+Insight 15 — Hour-of-Day Patterns Suggest Operational Windows
+    Certain hours of the business day show notably higher return rates, which may
+    correlate with customer service staffing levels or automated return-processing
+    systems. Aligning intervention resources (e.g., proactive customer contact)
+    with these windows could intercept returns before they are finalised.
+
+
+================================================================================
+  PART 7 : BUSINESS RECOMMENDATIONS TABLE
+================================================================================
+
+  Priority    Issue Identified                                     Recommended Action                                           Expected Impact
+  ─────────   ──────────────────────────────────────────────────   ──────────────────────────────────────────────────────────   ──────────────────────────────────────────
+  Critical    67 products drive 80% of return losses               Quality audit + enhanced product descriptions/images for     Recover up to 60% of concentrated return
+                                                                   these 67 SKUs; A/B test listing improvements                 losses (est. GBP 293K)
+
+  Critical    High-risk customer segment generates outsized         Implement tiered return policy: standard tier (30-day        Reduce high-risk segment losses by 30-40%
+              return losses                                        window), restricted tier (14-day, restocking fee) for
+                                                                   flagged accounts, with transparent appeals process
+
+  High        GBP 50-1000 price band has elevated return risk      Add detailed size guides, AR/3D product previews, and        Lower high-price-band returns by 15-20%
+                                                                   video demonstrations for premium products
+
+  High        Certain countries show 2-3x higher return rates      Localise product descriptions, implement region-specific      Improve regional return rates by 10-15%
+                                                                   shipping expectation management, consider local return
+                                                                   processing centres
+
+  High        Post-holiday return spikes erode seasonal profits    Extend pre-dispatch quality checks before peak periods;       Mitigate seasonal return spikes by 10-20%
+                                                                   offer gift receipts with easier exchange (vs return)
+                                                                   options
+
+  Medium      Product categories with subjective attributes        Invest in augmented reality try-on tools and customer         Reduce category-specific returns by 12-18%
+              (colour, size) show high return rates                 review integration for high-return categories
+
+  Medium      No actual cost data — all profit figures are         Partner with finance and logistics to capture true COGS,      Enable exact ROI calculations for all
+              estimated                                            fulfilment costs, and return processing costs per item        return-reduction initiatives
+
+  Medium      25% of transactions lack CustomerID, limiting       Mandate customer ID capture at all touchpoints; incentivise   Expand analysable base by 25%; improve
+              customer-level analytics                             account creation with loyalty programme                       segmentation accuracy
+
+  Low         Certain days/hours show elevated return rates        Align proactive customer-success outreach (e.g., delivery     Potential 5-8% reduction in time-specific
+                                                                   confirmation calls, satisfaction surveys) with high-return    returns
+                                                                   time windows
+
+  Low         New customers show higher return propensity          Implement post-first-purchase onboarding emails with          Reduce first-purchase returns by 10-15%
+                                                                   product-care tips, size-confirmation tools, and satisfaction
+                                                                   check-ins
+
+
+================================================================================
+  PART 8 : ETHICAL IMPLICATIONS DISCUSSION
+================================================================================
+
+8.1  Customer Fairness and Consumer Rights
+──────────────────────────────────────────
+
+Return-reduction strategies must operate within the legal framework of consumer
+protection legislation. In the UK (the primary market), the Consumer Rights Act
+2015 grants consumers a 14-day unconditional return window for distance sales,
+and a 30-day window for faulty goods. Any tiered return policy must not infringe
+upon these statutory rights. Restricting returns for flagged customers must be
+limited to discretionary (non-statutory) extensions and must never penalise
+legitimate quality complaints.
+
+8.2  Data Privacy and GDPR Compliance
+──────────────────────────────────────
+
+The customer-level return-behaviour profiling conducted in this analysis
+constitutes processing of personal data under the General Data Protection
+Regulation (GDPR). Key compliance requirements include:
+
+  - Purpose limitation: Return-behaviour data should only be used for legitimate
+    business purposes (fraud prevention, service improvement), not sold or shared
+    with third parties.
+  - Data minimisation: Only the minimum customer data necessary for the analysis
+    should be retained.
+  - Right to explanation: If a customer is placed in a restricted-return tier,
+    they have the right to understand why and to contest the decision.
+  - Anonymisation: Analytical outputs shared in reports or dashboards should use
+    anonymised customer identifiers.
+
+8.3  Algorithmic Bias in Risk Segmentation
+──────────────────────────────────────────
+
+The risk-segmentation model assigns customers to High / Medium / Low tiers based
+on return rate and absolute return loss. This model could inadvertently
+disadvantage certain groups:
+
+  - Geographic bias: Customers in countries with longer shipping times may have
+    higher return rates due to delivery damage, not behavioural intent.
+  - Socioeconomic bias: Customers purchasing lower-priced items in bulk may
+    appear as "serial returners" when in fact they are making legitimate
+    quantity adjustments.
+
+Regular auditing of the segmentation model against demographic and geographic
+fairness criteria is essential.
+
+8.4  Transparency of Policy Changes
+────────────────────────────────────
+
+Any operational changes driven by this analysis (e.g., modified return windows,
+restocking fees, or flagging mechanisms) must be communicated to customers
+proactively and in advance. Retroactive application of stricter policies — where
+customers are penalised for past behaviour under rules that did not exist at the
+time — is ethically indefensible and legally questionable.
+
+8.5  Proportionality of Interventions
+──────────────────────────────────────
+
+Not all returns are harmful. Product-quality returns signal genuine manufacturing
+or description issues that, if addressed, improve the business long-term. The
+recommendations in this analysis are designed to be proportional: severe
+interventions (account restrictions) are reserved for the small High-Risk
+segment, while broader interventions (better product descriptions, AR tools)
+benefit all customers. This graduated approach ensures that the 95%+ of
+customers who return products rarely are not subjected to unnecessary friction.
+
+
+================================================================================
+  PART 9 : LIMITATIONS OF THE ANALYSIS
+================================================================================
+
+9.1  Absence of Cost Data
+
+    The dataset provides only revenue-side information (Quantity and UnitPrice).
+    All profit calculations rely on an assumed 40% gross margin, which may not
+    accurately reflect the retailer's actual cost structure. Products with varying
+    margins would produce different profit-erosion figures. The Profit Lift
+    Simulator partially mitigates this by allowing users to adjust the margin
+    assumption, but exact figures require real cost data.
+
+9.2  Missing CustomerID Records
+
+    135,080 rows (24.9% of the original dataset) were excluded because CustomerID
+    was null. If these rows have a systematically different return profile than
+    retained rows, the analysis could be biased. Specifically, if unidentified
+    customers have higher return rates, the true profit leakage is understated.
+
+9.3  Proxy Product Categorisation
+
+    The dataset does not include a formal product category hierarchy. The proxy
+    used (first word of Description) is crude and produces noisy categories. An
+    official product taxonomy would enable far more precise category-level
+    insights.
+
+9.4  No Return Reason Data
+
+    The dataset identifies that a return occurred but not why. Without return
+    reason codes (e.g., wrong size, damaged in transit, not as described,
+    changed mind), root-cause analysis is limited. The recommendations are
+    therefore inferred from patterns rather than confirmed by causal evidence.
+
+9.5  Single-Year Observation Window
+
+    The data spans approximately 12 months (December 2010 — December 2011).
+    Year-over-year trend analysis is not possible, and seasonal patterns may not
+    be representative of longer-term cycles. Conclusions about seasonality should
+    be treated as indicative rather than definitive.
+
+9.6  Currency Assumption
+
+    All monetary values are assumed to be in British Pounds (GBP), consistent
+    with the UK-centric customer base. For international transactions, exchange
+    rate effects are not modelled.
+
+9.7  Return Processing Costs
+
+    The true cost of processing a return (shipping, inspection, restocking,
+    potential write-off) is unknown. The dashboard's cost multiplier slider
+    (1.0x to 1.5x) provides sensitivity analysis but cannot replace actual
+    operational cost data.
+
+
+================================================================================
+  PART 10 : FUTURE IMPROVEMENTS
+================================================================================
+
+10.1 Integration of Actual Cost Data
+    Partnering with finance and logistics to incorporate true COGS, fulfilment
+    costs, and return-processing costs per SKU would transform estimated profit
+    figures into exact ones, dramatically improving the reliability of the Profit
+    Lift Simulator.
+
+10.2 Return Reason Classification
+    Implementing a return-reason taxonomy (quality defect, size mismatch, delivery
+    damage, changed mind, etc.) would enable causal analysis rather than
+    correlational pattern-matching, allowing far more targeted interventions.
+
+10.3 Predictive Return Modelling
+    Developing a machine-learning model (e.g., logistic regression, gradient
+    boosting) to predict the probability of return at the point of sale — using
+    features such as product category, customer history, price band, and country
+    — would enable pre-emptive interventions (e.g., enhanced product previews,
+    proactive size-confirmation prompts).
+
+10.4 A/B Testing Framework
+    Building an A/B testing infrastructure to empirically validate intervention
+    effectiveness (e.g., testing enhanced product descriptions against current
+    listings for the top-67 return-loss products) would move the analysis from
+    recommendation to measured impact.
+
+10.5 Real-Time Dashboard Deployment
+    Connecting the dashboard to a live database (rather than a static Excel file)
+    and deploying it on a cloud infrastructure (e.g., Streamlit Cloud, AWS)
+    would enable continuous monitoring and early-warning alerts when return rates
+    exceed dynamic thresholds.
+
+10.6 Natural Language Processing for Product Descriptions
+    Applying NLP to product descriptions to auto-generate standardised categories,
+    sentiment-enriched labels, and keyword-based quality indicators would replace
+    the current crude first-word proxy with a robust taxonomy.
+
+10.7 Customer Lifetime Value Integration
+    Incorporating CLV calculations alongside return-loss data would enable the
+    retailer to distinguish between high-value customers with occasional returns
+    (worth retaining with lenient policies) and low-value serial returners (worth
+    restricting), further refining the risk-segmentation model.
+
+10.8 Multi-Year Longitudinal Analysis
+    Extending the dataset to cover multiple years would enable year-over-year
+    trend analysis, confirming whether return rates are genuinely increasing and
+    whether seasonal patterns are stable or evolving.
+
+
+================================================================================
+  PART 11 : TWO-MINUTE VIDEO PRESENTATION SCRIPT
+================================================================================
+
+[SLIDE 1 — Title]
+
+Good morning. My name is Astitva, and today I will present my Data Analytics
+project on profit leakage in online retail — specifically, how product returns
+silently erode profitability even when revenue appears healthy.
+
+[SLIDE 2 — Problem]
+
+The core problem is this: an online retailer shows GBP 8.9 million in gross
+revenue over a 12-month period, yet an estimated GBP 611,000 leaks out through
+product returns. That does not sound like a large percentage — roughly 7% — but
+when you measure it against gross profit rather than revenue, returns consume
+over 17% of the profit base. The gap between revenue growth and profit decline
+is driven by these returns.
+
+[SLIDE 3 — Dataset and Methodology]
+
+I used the UCI Online Retail dataset from Kaggle, containing 541,000 transaction
+records across 38 countries. After cleaning — removing records without customer
+identification, null descriptions, and non-transactional rows — I retained
+407,000 records. Returns were identified by cancelled invoice codes and negative
+quantities. I engineered additional features: price bands, product categories,
+time dimensions, and customer segmentation tiers.
+
+[SLIDE 4 — Dashboard Walkthrough]
+
+The dashboard I built in Streamlit has five sections. First, an executive summary
+showing all key financial metrics and a waterfall chart that traces how GBP 8.9
+million narrows to GBP 2.95 million in net profit. Second, a product
+intelligence tab where a Pareto analysis reveals that just 67 products — 3.4% of
+returned items — account for 80% of losses. Third, a customer risk tab with
+cohort retention heatmaps and a scatter plot mapping every customer on a
+spend-vs-return-loss plane. Fourth, a profit simulator where stakeholders can
+drag a slider to model the impact of reducing returns by any target percentage.
+And fifth, an action tracker with prioritised recommendations and ethical
+safeguards.
+
+[SLIDE 5 — Key Insights]
+
+Three findings stand out. First, the extreme Pareto concentration — fixing just
+67 products could recover the majority of losses. Second, a small group of
+high-risk customers accounts for a disproportionate share of returns, and
+targeted policies would not affect 95% of the customer base. Third, higher-priced
+items generate the largest per-unit return losses, suggesting that better product
+presentation — augmented reality previews, detailed size guides — would have the
+highest return on investment.
+
+[SLIDE 6 — Business Impact]
+
+The simulator shows that a 25% reduction in return losses would lift net profit
+by approximately GBP 176,000 — a meaningful recovery with a focused intervention
+on fewer than 70 products and a few hundred customer accounts. This is not a
+speculation; it is a data-backed projection.
+
+[CLOSING]
+
+In summary, the retailer does not have a revenue problem — it has a profit
+retention problem. And this analysis provides the precise map of where the leaks
+are and how to seal them. Thank you.
+
+
+================================================================================
+  END OF ACADEMIC REPORT
+================================================================================
